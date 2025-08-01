@@ -27,4 +27,14 @@ handin:
 clean:
 	rm -f *~ *.o mdriver
 
-
+test:
+	mkdir -p test-results
+	@for trace in traces/*-bal.rep; do \
+		base=$$(basename $$trace .rep); \
+		./mdriver -f $$trace > test-results/$$base.txt; \
+	done
+	@for trace in short1-bal.rep short2-bal.rep; do \
+		base=$$(basename $$trace .rep); \
+		./mdriver -f $$trace > test-results/$$base.txt; \
+	done
+	./mdriver -v -g > test-results/summary.txt
