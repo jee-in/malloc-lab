@@ -224,18 +224,26 @@ void *mm_realloc(void *ptr, size_t size)
     return newptr;
 }
 
-/* first fit */
+/* best fit */
 static void *find_fit(size_t asize)
 {
-    void *bp;
+    void *fp = NULL;
+    size_t minsize = (size_t)-1;
 
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {     /* find the first fit free block */
-        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
-            return bp;
+    for (void *bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+        size_t bsize = GET_SIZE(HDRP(bp));
+
+        if (!GET_ALLOC(HDRP(bp)) && bsize >= asize) {
+            if (bsize < minsize) {
+                minsize = bsize;
+                fp = bp;
+            }
         }
     }
-    return NULL; /* No fit */
+
+    return fp;
 }
+
 
 static void place(void *bp, size_t asize)
 {
