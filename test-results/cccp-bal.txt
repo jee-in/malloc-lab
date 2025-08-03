@@ -2,7 +2,7 @@ Measuring performance with gettimeofday().
 
 Results for mm malloc:
 trace  valid  util     ops      secs  Kops
- 0       yes   94%    5848  0.000257 22720
-Total          94%    5848  0.000257 22720
+ 0       yes   99%    5848  0.000209 27941
+Total          99%    5848  0.000209 27941
 
-Perf index = 56 (util) + 40 (thru) = 96/100
+Perf index = 60 (util) + 40 (thru) = 100/100
