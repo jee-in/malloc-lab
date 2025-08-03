@@ -74,8 +74,6 @@ static void *coalesce_free(void *bp);                                           
 static void insert_free_block(void *bp);
 static void remove_free_block(void *bp);
 
-static void check_heap(char* func_name);
-
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -247,12 +245,21 @@ void *mm_realloc(void *ptr, size_t size)
 
 static void *find_fit(size_t asize)
 {
+    void *fp = NULL;
+    size_t minsize = (size_t)-1;
+
     for (void *bp = free_listp; bp != NULL; bp = NEXT_FREE(bp)) {
-        if (!GET_ALLOC(HDRP(bp)) && asize <= GET_SIZE(HDRP(bp))) {
-            return bp;
+        size_t bsize = GET_SIZE(HDRP(bp));
+
+        if (!GET_ALLOC(HDRP(bp)) && bsize >= asize) {
+            if (bsize < minsize) {
+                minsize = bsize;
+                fp = bp;
+            }
         }
     }
-    return NULL;
+
+    return fp;
 }
 
 
