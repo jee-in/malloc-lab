@@ -37,12 +37,14 @@ team_t team = {
 
 #define ALIGNMENT 8                                         /* single word (4) or double word (8) alignment */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)       /* rounds up to the nearest multiple of ALIGNMENT */
+#define ASIZE(size) ((size) <= DSIZE ? 2 * DSIZE : DSIZE + ALIGN(size))
 
 #define WSIZE 4                                             /* word size */
 #define DSIZE 8                                             /* double word size */
 #define CHUNKSIZE (1<<12)                                   /* default increasing heap size */
 
-#define MAX(x, y) ((x) > (y)? (x) : (y))                    /* get max of x and y */
+#define MAX(x, y) ((x) > (y)? (x) : (y))                    /* get max between x and y */
+#define MIN(x, y) ((x) < (y)? (x) : (y))                    /* get min between x and y */
 
 #define PACK(size, alloc) ((size) | (alloc))                /* create data for header and footer block */
 
@@ -98,22 +100,18 @@ void *mm_malloc(size_t size)
     if (size == 0)
         return NULL;
 
-    /* Adjust block size to include overhead and alignment reqs. */
-    if (size <= DSIZE)
-        asize = 2*DSIZE;
-    else
-        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
-
-    /* Search the free list for a fit */
+    /* Search the free block whose size satisfies the adjusted block size */
+    asize = ASIZE(size);
     if ((bp = find_fit(asize)) != NULL) {
         place(bp, asize);
         return bp;
     }
 
-    /* No fit found. Get more memory and place the block */
+    /* Extend heap area if no free block available */
     extendsize = MAX(asize, CHUNKSIZE);
     if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
         return NULL;
+
     place(bp, asize);
     return bp;
 }
@@ -137,25 +135,22 @@ void *mm_realloc(void *ptr, size_t size)
 {
     void *oldptr = ptr;
     void *newptr;
-    size_t copySize;
+    size_t oldSize = GET_SIZE(HDRP(oldptr));
 
     if (ptr == NULL) {
         return mm_malloc(size);
     }
+
     if (size == 0) {
         mm_free(ptr);
         return NULL;
     }
-    
+
     newptr = mm_malloc(size);
     if (newptr == NULL)
       return NULL;
-    
-    copySize = GET_SIZE(HDRP(oldptr));
-    if (size < copySize)
-      copySize = size;
 
-    memcpy(newptr, oldptr, copySize);
+    memcpy(newptr, oldptr, MIN(size, oldSize));
     mm_free(oldptr);
     return newptr;
 }
