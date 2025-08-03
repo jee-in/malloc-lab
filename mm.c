@@ -254,13 +254,23 @@ static void *find_fit(size_t asize)
 {
     int idx;
     void *bp;
+    void *best_fit = NULL;
+    size_t min_diff = (size_t)-1;
 
     for (idx = get_list_index(asize); idx < LISTLIMIT; idx++) {
         for (bp = free_lists[idx]; bp != NULL; bp = NEXT_FREE(bp)) {
-            if (!GET_ALLOC(HDRP(bp)) && asize <= GET_SIZE(HDRP(bp))) {
-                return bp;
+            size_t bsize = GET_SIZE(HDRP(bp));
+            if (!GET_ALLOC(HDRP(bp)) && asize <= bsize) {
+                size_t diff = bsize - asize;
+                if (diff < min_diff) {
+                    min_diff = diff;
+                    best_fit = bp;
+                    if (diff == 0)
+                        return best_fit;
+                }
             }
         }
+        if (best_fit) return best_fit;
     }
 
     return NULL;
