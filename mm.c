@@ -250,11 +250,22 @@ static void place(void *bp, size_t asize)
     size_t csize = GET_SIZE(HDRP(bp));                                      /* size of the found block */
 
     if ((csize - asize) >= (2*DSIZE)) {                                     /* spliting the block to avoid internal fragmentation */
-        PUT(HDRP(bp), PACK(asize, 1));                                      /* set header block of the allocated block*/
-        PUT(FTRP(bp), PACK(asize, 1));                                      /* set footer block of the allocated block */
-        bp = NEXT_BLKP(bp);                                                 /* block pointer for splited free block */
-        PUT(HDRP(bp), PACK(csize-asize, 0));
-        PUT(FTRP(bp), PACK(csize-asize, 0));
+
+        if (!GET_ALLOC(HDRP(NEXT_BLKP(bp)))) {
+            size_t nextsize = GET_SIZE(HDRP(bp));
+
+            PUT(HDRP(bp), PACK(asize, 1));
+            PUT(FTRP(bp), PACK(asize, 1));
+            bp = NEXT_BLKP(bp);
+            PUT(HDRP(bp), PACK(nextsize+csize-asize, 0));
+            PUT(FTRP(bp), PACK(nextsize+csize-asize, 0));
+        } else {
+            PUT(HDRP(bp), PACK(asize, 1));                                      /* set header block of the allocated block*/
+            PUT(FTRP(bp), PACK(asize, 1));                                      /* set footer block of the allocated block */
+            bp = NEXT_BLKP(bp);                                                 /* block pointer for splited free block */
+            PUT(HDRP(bp), PACK(csize-asize, 0));
+            PUT(FTRP(bp), PACK(csize-asize, 0));
+        }
     }
     else {                                                                  /* default: no split */
         PUT(HDRP(bp), PACK(csize, 1));
