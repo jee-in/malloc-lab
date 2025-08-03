@@ -63,16 +63,20 @@ team_t team = {
 #define NEXT_FREE(bp)   (*(char **)(bp))
 #define PREV_FREE(bp)   (*(char **)(bp + WSIZE))
 
+#define LISTLIMIT 10
+
 static char* heap_listp;                                                    /* pointer to the heap top  */
-static char* free_listp;                                                    /* pointer to the free list  */
+static void *free_lists[LISTLIMIT];
 
 static void *find_fit(size_t asize);                                        /* find the free block to allocate */
 static void place(void *bp, size_t asize);                                  /* set data to header and footer block of the allocated block */
 static void *extend_heap(size_t words);                                     /* if heap is full extend it */
-static void *coalesce_free(void *bp);                                            /* if there are free blocks around the freed block, coalesce with them */
+static void *coalesce_free(void *bp);                                       /* if there are free blocks around the freed block, coalesce with them */
 
 static void insert_free_block(void *bp);
 static void remove_free_block(void *bp);
+
+static int get_list_index(size_t size);
 
 /* 
  * mm_init - initialize the malloc package.
@@ -87,7 +91,9 @@ int mm_init(void)
     PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));                            /* prologue footer */
     PUT(heap_listp + (3*WSIZE), PACK(0, 1));                                /* epilogue header */
     heap_listp += (2*WSIZE);                                                /* fixed start block pointer */
-    free_listp = NULL;
+    for (int i = 0; i < LISTLIMIT; i++) {
+        free_lists[i] = NULL;
+    }
 
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL)                               /* extend heap by CHUNKSIZE */
         return -1;
@@ -243,25 +249,22 @@ void *mm_realloc(void *ptr, size_t size)
     return newptr;
 }
 
+/* first-fit */
 static void *find_fit(size_t asize)
 {
-    void *fp = NULL;
-    size_t minsize = (size_t)-1;
+    int idx;
+    void *bp;
 
-    for (void *bp = free_listp; bp != NULL; bp = NEXT_FREE(bp)) {
-        size_t bsize = GET_SIZE(HDRP(bp));
-
-        if (!GET_ALLOC(HDRP(bp)) && bsize >= asize) {
-            if (bsize < minsize) {
-                minsize = bsize;
-                fp = bp;
+    for (idx = get_list_index(asize); idx < LISTLIMIT; idx++) {
+        for (bp = free_lists[idx]; bp != NULL; bp = NEXT_FREE(bp)) {
+            if (!GET_ALLOC(HDRP(bp)) && asize <= GET_SIZE(HDRP(bp))) {
+                return bp;
             }
         }
     }
 
-    return fp;
+    return NULL;
 }
-
 
 static void place(void *bp, size_t asize)
 {
@@ -275,7 +278,7 @@ static void place(void *bp, size_t asize)
         bp = NEXT_BLKP(bp);                                                 /* block pointer for splited free block */
         PUT(HDRP(bp), PACK(csize-asize, 0));
         PUT(FTRP(bp), PACK(csize-asize, 0));
-        
+
         coalesce_free(bp);
     }
     else {                                                                  /* default: no split */
@@ -294,46 +297,35 @@ static void *extend_heap(size_t words)
         return NULL;
 
     PUT(HDRP(bp), PACK(size, 0));                                           /* free block header */
-    PUT(HDRP(bp) + WSIZE, 0);                                               /* pointer to previous free block */
-    PUT(HDRP(bp) + 2*WSIZE, 0);                                             /* pointer to next free block */
     PUT(FTRP(bp), PACK(size, 0));                                           /* free block footer */
+    NEXT_FREE(bp) = NULL;
+    PREV_FREE(bp) = NULL;    
 
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));                                   /* update epilogue header */
     
     return coalesce_free(bp);
 }
 
-static void *coalesce_free(void *bp)
-{
-    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
-    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
-
+static void *coalesce_free(void *bp) {
+    void *prev_bp = PREV_BLKP(bp);
+    void *next_bp = NEXT_BLKP(bp);
+    size_t prev_alloc = GET_ALLOC(FTRP(prev_bp));
+    size_t next_alloc = GET_ALLOC(HDRP(next_bp));
     size_t size = GET_SIZE(HDRP(bp));
-    size_t prevsize = GET_SIZE(HDRP(PREV_BLKP(bp)));
-    size_t nextsize = GET_SIZE(HDRP(NEXT_BLKP(bp)));
 
-    if (prev_alloc && !next_alloc) {
-        remove_free_block(NEXT_BLKP(bp));
-
-        PUT(HDRP(bp), PACK(size + nextsize, 0));
-        PUT(FTRP(bp), PACK(size + nextsize, 0));
+    if (!prev_alloc) {
+        remove_free_block(prev_bp);
+        size += GET_SIZE(HDRP(prev_bp));
+        bp = prev_bp;
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
     }
 
-    else if (!prev_alloc && next_alloc) {
-        remove_free_block(PREV_BLKP(bp));
-
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size + prevsize, 0));
-        PUT(FTRP(bp), PACK(size + prevsize, 0));
-        bp = PREV_BLKP(bp);
-    }
-
-    else if (!prev_alloc && !next_alloc) {
-        remove_free_block(PREV_BLKP(bp));
-        remove_free_block(NEXT_BLKP(bp));
-
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size + prevsize + nextsize, 0));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(size + prevsize + nextsize, 0));
-        bp = PREV_BLKP(bp);
+    if (!next_alloc) {
+        remove_free_block(next_bp);
+        size += GET_SIZE(HDRP(next_bp));
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
     }
 
     insert_free_block(bp);
@@ -341,22 +333,46 @@ static void *coalesce_free(void *bp)
 }
 
 static void insert_free_block(void *bp) {
-    NEXT_FREE(bp) = free_listp;
-    PREV_FREE(bp) = NULL;
-    if (free_listp != NULL) {
-        PREV_FREE(free_listp) = bp;
+    size_t size = GET_SIZE(HDRP(bp));
+    int index = get_list_index(size);
+
+    void *head = free_lists[index];
+
+    if (head != NULL) {
+        PREV_FREE(head) = bp;
     }
-    free_listp = bp;
+    NEXT_FREE(bp) = head;
+    PREV_FREE(bp) = NULL;
+
+    free_lists[index] = bp;
 }
 
 static void remove_free_block(void *bp) {
-    if (PREV_FREE(bp)) {
-        NEXT_FREE(PREV_FREE(bp)) = NEXT_FREE(bp);
+    int index = get_list_index(GET_SIZE(HDRP(bp)));
+    void *prev = PREV_FREE(bp);
+    void *next = NEXT_FREE(bp);
+
+    if (prev != NULL) {
+        NEXT_FREE(prev) = next;
     } else {
-        free_listp = NEXT_FREE(bp);
+        free_lists[index] = next;
     }
 
-    if (NEXT_FREE(bp)) {
-        PREV_FREE(NEXT_FREE(bp)) = PREV_FREE(bp);
+    if (next != NULL) {
+        PREV_FREE(next) = prev;
     }
+}
+
+
+static int get_list_index(size_t size) {
+    if (size <= (1 << 4)) return 0;
+    else if (size <= (1 << 5)) return 1;
+    else if (size <= (1 << 6)) return 2;
+    else if (size <= (1 << 7)) return 3;
+    else if (size <= (1 << 8)) return 4;
+    else if (size <= (1 << 9)) return 5;
+    else if (size <= (1 << 10)) return 6;
+    else if (size <= (1 << 11)) return 7;
+    else if (size <= (1 << 12)) return 8;
+    else return LISTLIMIT - 1;
 }
