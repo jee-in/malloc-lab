@@ -129,28 +129,97 @@ void mm_free(void *bp)
 }
 
 /*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ * mm_realloc - implement in-place realloc
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t oldSize = GET_SIZE(HDRP(oldptr));
-
     if (ptr == NULL) {
         return mm_malloc(size);
     }
-
     if (size == 0) {
         mm_free(ptr);
         return NULL;
+    }
+
+    void *oldptr = ptr;
+    void *newptr;
+    size_t oldsize = GET_SIZE(HDRP(oldptr));
+    size_t copysize = oldsize - DSIZE;
+    size_t asize = ASIZE(size);
+
+    if (size < copysize)
+      copysize = size;
+
+    void *prevPtr = PREV_BLKP(oldptr);
+    void *nextPtr = NEXT_BLKP(oldptr);
+    size_t prev_alloc = GET_ALLOC(HDRP(prevPtr));
+    size_t next_alloc = GET_ALLOC(HDRP(nextPtr));
+    size_t prevSize = GET_SIZE(HDRP(prevPtr));
+    size_t nextSize = GET_SIZE(HDRP(nextPtr));
+
+    if (!prev_alloc && !next_alloc) {
+        size_t totalSize = oldsize + prevSize + nextSize;
+
+        if (totalSize >= asize && (totalSize - asize) >= 2 * DSIZE) {
+            newptr = prevPtr;
+            memmove(newptr, oldptr, copysize);
+            PUT(HDRP(newptr), PACK(asize, 1));
+            PUT(FTRP(newptr), PACK(asize, 1));
+
+            void *freedp = NEXT_BLKP(newptr);
+            PUT(HDRP(freedp), PACK(totalSize - asize, 0));
+            PUT(FTRP(freedp), PACK(totalSize - asize, 0));
+
+            return newptr;
+        }
+    } else if (!prev_alloc && next_alloc) {
+        size_t totalSize = oldsize + prevSize;
+
+        if (totalSize >= asize && (totalSize - asize) >= 2 * DSIZE) {
+            newptr = prevPtr;
+            memmove(newptr, oldptr, copysize);
+            PUT(HDRP(newptr), PACK(asize, 1));
+            PUT(FTRP(newptr), PACK(asize, 1));
+
+            void *freedp = NEXT_BLKP(newptr);
+            PUT(HDRP(freedp), PACK(totalSize - asize, 0));
+            PUT(FTRP(freedp), PACK(totalSize - asize, 0));
+
+            return newptr;
+        }
+    } else if (prev_alloc && !next_alloc) {
+        size_t totalSize = oldsize + nextSize;
+
+        if (totalSize >= asize && (totalSize - asize) >= 2 * DSIZE) {
+            newptr = oldptr;
+            PUT(HDRP(newptr), PACK(asize, 1));
+            PUT(FTRP(newptr), PACK(asize, 1));
+
+            void *freedp = NEXT_BLKP(newptr);
+            PUT(HDRP(freedp), PACK(totalSize - asize, 0));
+            PUT(FTRP(freedp), PACK(totalSize - asize, 0));
+
+            return newptr;
+        }        
+    } else {
+        if (oldsize >= asize && (oldsize - asize) >= 2 * DSIZE) {
+            newptr = oldptr;
+            PUT(HDRP(newptr), PACK(asize, 1));
+            PUT(FTRP(newptr), PACK(asize, 1));
+            void *freedp = NEXT_BLKP(newptr);
+
+            PUT(HDRP(freedp), PACK(oldsize - asize, 0));
+            PUT(FTRP(freedp), PACK(oldsize - asize, 0));
+
+            return newptr;
+        }
     }
 
     newptr = mm_malloc(size);
     if (newptr == NULL)
       return NULL;
 
-    memcpy(newptr, oldptr, MIN(size, oldSize));
+    memcpy(newptr, oldptr, copysize);
     mm_free(oldptr);
     return newptr;
 }
@@ -233,3 +302,4 @@ static void *coalesce(void *bp)
 
     return bp;
 }
+
